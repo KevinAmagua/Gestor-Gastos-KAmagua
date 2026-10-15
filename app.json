@@ -33,7 +33,15 @@
           "imageWidth": 76
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Permite elegir una foto para adjuntarla como comprobante de un gasto.",
+          "cameraPermission": "Permite tomar una foto para adjuntarla como comprobante de un gasto.",
+          "microphonePermission": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

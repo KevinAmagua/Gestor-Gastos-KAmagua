@@ -6,14 +6,35 @@ import { StatusBar } from 'expo-status-bar';
 import { MonthlyHeader } from '@/components/MonthlyHeader';
 import { ExpenseItem } from '@/components/ExpenseItem';
 import { AddExpenseModal } from '@/components/AddExpenseModal';
+import { Expense } from '@/types/expense';
 import { useExpenses } from '@/context/ExpenseContext';
 import { LiquidGlassColors, Spacing } from '@/constants/theme';
 
 // Pantalla principal: total del mes, lista de gastos y el boton + para agregar
 export default function HomeScreen() {
-  const { getCurrentMonthExpenses,isLoading } = useExpenses();
+  const { getCurrentMonthExpenses, isLoading, deleteExpense } = useExpenses();
   const [modalVisible, setModalVisible] = useState(false);
-  const expenses = getCurrentMonthExpenses();
+  const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
+  const [sortByAmount, setSortByAmount] = useState(false);
+  const currentExpenses = getCurrentMonthExpenses();
+  const expenses = sortByAmount
+    ? [...currentExpenses].sort((first, second) => second.amount - first.amount)
+    : currentExpenses;
+
+  const openAddExpense = () => {
+    setSelectedExpense(null);
+    setModalVisible(true);
+  };
+
+  const openEditExpense = (expense: Expense) => {
+    setSelectedExpense(expense);
+    setModalVisible(true);
+  };
+
+  const closeExpenseModal = () => {
+    setModalVisible(false);
+    setSelectedExpense(null);
+  };
 
   return (
     <View style={styles.container}>
@@ -32,6 +53,23 @@ export default function HomeScreen() {
             <Text style={styles.appTitle}>Gastos Poliestudiante</Text>
 
             <MonthlyHeader />
+
+            {expenses.length > 0 && (
+              <TouchableOpacity
+                style={styles.sortButton}
+                onPress={() => setSortByAmount((current) => !current)}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  sortByAmount
+                    ? 'Ordenar gastos por fecha'
+                    : 'Ordenar gastos de mayor a menor monto'
+                }
+              >
+                <Text style={styles.sortButtonText}>
+                  {sortByAmount ? 'Orden: mayor monto ↓' : 'Ordenar por mayor monto'}
+                </Text>
+              </TouchableOpacity>
+            )}
 
             {/* Si no hay gastos este mes mostramos un mensaje en vez de la lista */}
             {/* Mientras se leen los datos guardados se muestra un indicador;
@@ -55,7 +93,12 @@ export default function HomeScreen() {
                 data={expenses}
                 keyExtractor={(item) => item.id}
                 renderItem={({ item, index }) => (
-                  <ExpenseItem expense={item} index={index} />
+                  <ExpenseItem
+                    expense={item}
+                    index={index}
+                    onEdit={openEditExpense}
+                    onDelete={deleteExpense}
+                  />
                 )}
                 contentContainerStyle={styles.listContent}
                 showsVerticalScrollIndicator={false}
@@ -66,7 +109,7 @@ export default function HomeScreen() {
           {/* Boton + de la esquina */}
           <TouchableOpacity
             style={styles.fab}
-            onPress={() => setModalVisible(true)}
+            onPress={openAddExpense}
             activeOpacity={0.8}
           >
             <LinearGradient
@@ -81,7 +124,8 @@ export default function HomeScreen() {
 
           <AddExpenseModal
             visible={modalVisible}
-            onClose={() => setModalVisible(false)}
+            onClose={closeExpenseModal}
+            expense={selectedExpense}
           />
         </SafeAreaView>
       </LinearGradient>
@@ -135,6 +179,21 @@ const styles = StyleSheet.create({
     color: LiquidGlassColors.glassText,
     marginBottom: Spacing.three,
     textAlign: 'center',
+  },
+  sortButton: {
+    alignSelf: 'flex-start',
+    marginBottom: Spacing.two,
+    paddingVertical: Spacing.two,
+    paddingHorizontal: Spacing.three,
+    borderRadius: Spacing.four,
+    borderWidth: 1,
+    borderColor: LiquidGlassColors.glassBorder,
+    backgroundColor: 'rgba(255, 255, 255, 0.55)',
+  },
+  sortButtonText: {
+    color: LiquidGlassColors.glassText,
+    fontSize: 13,
+    fontWeight: '600',
   },
   listContent: {
     paddingBottom: 100,

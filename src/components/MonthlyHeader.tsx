@@ -32,6 +32,7 @@ export const MonthlyHeader: React.FC = () => {
 
   // Sale en minuscula ("octubre de 2026"); la mayuscula la pone el estilo
   const currentMonth = new Date().toLocaleDateString('es-ES', {
+    day: 'numeric',
     month: 'long',
     year: 'numeric',
   });

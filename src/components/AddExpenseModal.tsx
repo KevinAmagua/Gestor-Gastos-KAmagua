@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
+  Image,
   Modal,
   StyleSheet,
   Text,
@@ -14,13 +15,16 @@ import {
 import Animated, { FadeIn, SlideInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
+import * as ImagePicker from 'expo-image-picker';
 import { Category, CATEGORIES, CATEGORY_ICONS } from '@/types/expense';
 import { LiquidGlassColors, Spacing } from '@/constants/theme';
 import { useExpenses } from '@/context/ExpenseContext';
+import { Expense } from '@/types/expense';
 
 interface AddExpenseModalProps {
   visible: boolean;
   onClose: () => void;
+  expense?: Expense | null;
 }
 
 // Modal que sube desde abajo para registrar un gasto.
@@ -28,23 +32,122 @@ interface AddExpenseModalProps {
 export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
   visible,
   onClose,
+  expense,
 }) => {
-  const { addExpense } = useExpenses();
+  const { addExpense, updateExpense } = useExpenses();
   // El monto es string porque asi trabaja el TextInput; se pasa a numero al guardar
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState<Category | null>(null);
   const [description, setDescription] = useState('');
+  const [receiptUri, setReceiptUri] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!visible) return;
+    setAmount(expense ? expense.amount.toFixed(2) : '');
+    setCategory(expense?.category ?? null);
+    setDescription(expense?.description ?? '');
+    setReceiptUri(expense?.receiptUri ?? null);
+  }, [visible, expense]);
+
+  const handlePickReceipt = async (source: 'camera' | 'library') => {
+    try {
+      const permission =
+        source === 'camera'
+          ? await ImagePicker.requestCameraPermissionsAsync()
+          : await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (!permission.granted) {
+        Alert.alert(
+          'Permiso requerido',
+          source === 'camera'
+            ? 'Permite el acceso a la cámara para tomar una foto del comprobante.'
+            : 'Permite el acceso a las fotos para elegir un comprobante.'
+        );
+        return;
+      }
+
+      const result =
+        source === 'camera'
+          ? await ImagePicker.launchCameraAsync({
+              mediaTypes: ['images'],
+              allowsEditing: true,
+              quality: 0.8,
+            })
+          : await ImagePicker.launchImageLibraryAsync({
+              mediaTypes: ['images'],
+              allowsEditing: true,
+              quality: 0.8,
+            });
+
+      if (!result.canceled) {
+        setReceiptUri(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error('Error al seleccionar el comprobante', error);
+      Alert.alert('Error', 'No se pudo seleccionar el comprobante.');
+    }
+  };
+
+  const handleAmountChange = (text: string) => {
+    const cleaned = text.replace(/[^\d.,]/g, '');
+    const separatorIndex = cleaned.search(/[.,]/);
+
+    if (separatorIndex === -1) {
+      setAmount(cleaned);
+      return;
+    }
+
+    const integerPart = cleaned.slice(0, separatorIndex) || '0';
+    const decimalPart = cleaned
+      .slice(separatorIndex + 1)
+      .replace(/[.,]/g, '')
+      .slice(0, 2);
+
+    setAmount(`${integerPart}.${decimalPart}`);
+  };
+
+  const handleDescriptionChange = (text: string) => {
+    setDescription(text.replace(/[^\p{L}\p{N} ]/gu, '').slice(0, 400));
+  };
 
   const handleSubmit = async () => {
-    if (!amount || !category) return;
- 
+    if (!category) {
+      Alert.alert(
+        'Categoría requerida',
+        'Selecciona una categoría antes de guardar el gasto.'
+      );
+      return;
+    }
+
+    const normalizedAmount = amount.replace(',', '.');
+
+    if (!/^\d+\.\d{2}$/.test(normalizedAmount)) {
+      Alert.alert(
+        'Monto inválido',
+        'Ingresa un monto con exactamente dos decimales, por ejemplo 12.50.'
+      );
+      return;
+    }
+
     try {
-      await addExpense({
-        amount: parseFloat(amount),
+      const amountValue = Number(normalizedAmount);
+      if (!Number.isFinite(amountValue) || amountValue <= 0) {
+        Alert.alert('Monto inválido', 'Ingresa un monto mayor que cero.');
+        return;
+      }
+
+      const updatedFields = {
+        amount: amountValue,
         category,
-        date: new Date(),
+        date: expense?.date ?? new Date(),
         description: description.trim() || undefined,
-      });
+        receiptUri: receiptUri ?? undefined,
+      };
+      if (expense) {
+        await updateExpense({ ...updatedFields, id: expense.id });
+      } else {
+        await addExpense(updatedFields);
+      }
     } catch (error) {
       // Si no se pudo guardar, se avisa y el modal queda abierto con los datos
       console.error('Error al guardar el gasto', error);
@@ -56,6 +159,7 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
     setAmount('');
     setCategory(null);
     setDescription('');
+    setReceiptUri(null);
     onClose();
   };
 
@@ -65,6 +169,7 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
     setAmount('');
     setCategory(null);
     setDescription('');
+    setReceiptUri(null);
     onClose();
   };
 
@@ -104,7 +209,9 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                 keyboardShouldPersistTaps="handled"
                 contentContainerStyle={styles.scrollContent}
               >
-                <Text style={styles.title}>Agregar Gasto</Text>
+                <Text style={styles.title}>
+                  {expense ? 'Editar Gasto' : 'Agregar Gasto'}
+                </Text>
 
                 <View style={styles.inputSection}>
                   <Text style={styles.label}>Monto (USD)</Text>
@@ -113,7 +220,7 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                     <TextInput
                       style={styles.input}
                       value={amount}
-                      onChangeText={setAmount}
+                      onChangeText={handleAmountChange}
                       placeholder="0.00"
                       keyboardType="decimal-pad"
                       placeholderTextColor={LiquidGlassColors.glassTextSecondary}
@@ -172,11 +279,46 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                   <TextInput
                     style={[styles.input, styles.descriptionInput]}
                     value={description}
-                    onChangeText={setDescription}
+                    onChangeText={handleDescriptionChange}
                     placeholder="Ej: Almuerzo, transporte a la universidad..."
                     placeholderTextColor={LiquidGlassColors.glassTextSecondary}
+                    maxLength={400}
                     multiline
                   />
+                </View>
+
+                <View style={styles.inputSection}>
+                  <Text style={styles.label}>Factura o comprobante (opcional)</Text>
+                  <View style={styles.receiptButtons}>
+                    <TouchableOpacity
+                      style={styles.receiptButton}
+                      onPress={() => handlePickReceipt('library')}
+                    >
+                      <Text style={styles.receiptButtonText}>Elegir de galería</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.receiptButton}
+                      onPress={() => handlePickReceipt('camera')}
+                    >
+                      <Text style={styles.receiptButtonText}>Tomar foto</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {receiptUri && (
+                    <View style={styles.receiptPreviewContainer}>
+                      <Image
+                        source={{ uri: receiptUri }}
+                        style={styles.receiptPreview}
+                        accessibilityLabel="Vista previa del comprobante"
+                      />
+                      <TouchableOpacity
+                        onPress={() => setReceiptUri(null)}
+                        accessibilityRole="button"
+                        accessibilityLabel="Quitar comprobante"
+                      >
+                        <Text style={styles.removeReceiptText}>Quitar imagen</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
                 </View>
 
                 <View style={styles.buttonContainer}>
@@ -201,7 +343,9 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                       end={{ x: 1, y: 1 }}
                       style={styles.submitGradient}
                     >
-                      <Text style={styles.submitButtonText}>Agregar</Text>
+                      <Text style={styles.submitButtonText}>
+                        {expense ? 'Guardar cambios' : 'Agregar'}
+                      </Text>
                     </LinearGradient>
                   </TouchableOpacity>
                 </View>
@@ -300,6 +444,40 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.three,
     minHeight: 80,
     textAlignVertical: 'top',
+  },
+  receiptButtons: {
+    flexDirection: 'row',
+    gap: Spacing.two,
+  },
+  receiptButton: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+    borderRadius: Spacing.two,
+    borderWidth: 1,
+    borderColor: LiquidGlassColors.glassBorder,
+    paddingVertical: Spacing.three,
+    alignItems: 'center',
+  },
+  receiptButtonText: {
+    color: LiquidGlassColors.glassText,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  receiptPreviewContainer: {
+    alignItems: 'center',
+    marginTop: Spacing.two,
+  },
+  receiptPreview: {
+    width: 120,
+    height: 120,
+    borderRadius: Spacing.two,
+    resizeMode: 'cover',
+  },
+  removeReceiptText: {
+    color: LiquidGlassColors.primary,
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: Spacing.one,
   },
   categoriesScroll: {
     marginHorizontal: -Spacing.two,
